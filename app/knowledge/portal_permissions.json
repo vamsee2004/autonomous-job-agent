@@ -1,0 +1,22 @@
+{
+    "Adzuna": {
+        "enabled": true,
+        "mode": "APPROVAL_REQUIRED"
+    },
+    "Naukri": {
+        "enabled": false,
+        "mode": "APPROVAL_REQUIRED"
+    },
+    "LinkedIn": {
+        "enabled": false,
+        "mode": "APPROVAL_REQUIRED"
+    },
+    "Indeed": {
+        "enabled": false,
+        "mode": "APPROVAL_REQUIRED"
+    },
+    "Glassdoor": {
+        "enabled": false,
+        "mode": "APPROVAL_REQUIRED"
+    }
+}

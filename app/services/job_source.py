@@ -1,4 +1,3 @@
-import os
 import json
 import time
 
@@ -7,12 +6,11 @@ from typing import List, Dict, Optional
 
 import requests
 
-from dotenv import load_dotenv
-
 from app.services.logger import logger
 
-
-load_dotenv()
+from app.services.config_validator import (
+    get_configuration
+)
 
 
 PROJECT_ROOT = Path(
@@ -39,6 +37,54 @@ def load_candidate_profile():
         return json.load(file)
 
 
+def normalize_job_type(
+    contract_type
+):
+
+    if not contract_type:
+        return None
+
+    normalized = (
+        str(contract_type)
+        .strip()
+        .lower()
+    )
+
+    if normalized in [
+        "permanent",
+        "full-time",
+        "full time"
+    ]:
+        return "Full-time"
+
+    if normalized in [
+        "contract",
+        "contractor"
+    ]:
+        return "Contract"
+
+    if normalized in [
+        "part-time",
+        "part time"
+    ]:
+        return "Part-time"
+
+    if normalized in [
+        "temporary"
+    ]:
+        return "Temporary"
+
+    if normalized in [
+        "internship",
+        "intern"
+    ]:
+        return "Internship"
+
+    return str(
+        contract_type
+    ).strip()
+
+
 def fetch_jobs(
     search_title: Optional[str] = None,
     search_location: Optional[str] = None,
@@ -46,13 +92,19 @@ def fetch_jobs(
     results_per_page: Optional[int] = None
 ) -> List[Dict]:
 
-    app_id = os.getenv(
-        "ADZUNA_APP_ID"
-    )
+    # ========================================================
+    # LOAD CENTRALIZED CONFIGURATION
+    # ========================================================
 
-    app_key = os.getenv(
-        "ADZUNA_APP_KEY"
-    )
+    configuration = get_configuration()
+
+    app_id = configuration[
+        "adzuna_app_id"
+    ]
+
+    app_key = configuration[
+        "adzuna_app_key"
+    ]
 
     if not app_id:
 
@@ -78,6 +130,10 @@ def fetch_jobs(
 
         return []
 
+    # ========================================================
+    # LOAD CANDIDATE PROFILE
+    # ========================================================
+
     candidate = load_candidate_profile()
 
     preferences = candidate.get(
@@ -95,56 +151,58 @@ def fetch_jobs(
         []
     )
 
+    # ========================================================
+    # DEFAULT SEARCH VALUES
+    # ========================================================
+
     if not search_title:
 
-        search_title = (
-            job_titles[0]
-            if job_titles
-            else "Java Developer"
-        )
+        search_title = configuration[
+            "job_search_title"
+        ]
+
+        if not search_title:
+
+            search_title = (
+                job_titles[0]
+                if job_titles
+                else "Java Developer"
+            )
 
     if not search_location:
 
-        search_location = (
-            locations[0]
-            if locations
-            else "Hyderabad"
-        )
+        search_location = configuration[
+            "job_search_location"
+        ]
+
+        if not search_location:
+
+            search_location = (
+                locations[0]
+                if locations
+                else "Hyderabad"
+            )
+
+    # ========================================================
+    # SEARCH PAGINATION SETTINGS
+    # ========================================================
 
     if max_pages is None:
 
-        try:
-
-            max_pages = int(
-                os.getenv(
-                    "ADZUNA_MAX_PAGES",
-                    "1"
-                )
-            )
-
-        except ValueError:
-
-            max_pages = 1
+        max_pages = configuration[
+            "job_search_max_pages"
+        ]
 
     if results_per_page is None:
 
-        try:
-
-            results_per_page = int(
-                os.getenv(
-                    "ADZUNA_RESULTS_PER_PAGE",
-                    "20"
-                )
-            )
-
-        except ValueError:
-
-            results_per_page = 20
+        results_per_page = configuration[
+            "job_search_results_per_page"
+        ]
 
     max_pages = max(
         1,
         min(
-            max_pages,
+            int(max_pages),
             10
         )
     )
@@ -152,7 +210,7 @@ def fetch_jobs(
     results_per_page = max(
         1,
         min(
-            results_per_page,
+            int(results_per_page),
             50
         )
     )
@@ -170,6 +228,10 @@ def fetch_jobs(
     seen_urls = set()
 
     max_retries = 3
+
+    # ========================================================
+    # ADZUNA PAGINATED SEARCH
+    # ========================================================
 
     for page in range(
         1,
@@ -193,6 +255,10 @@ def fetch_jobs(
         }
 
         data = None
+
+        # ====================================================
+        # RETRY LOGIC
+        # ====================================================
 
         for attempt in range(
             1,
@@ -249,7 +315,6 @@ def fetch_jobs(
                     f"status={status_code}"
                 )
 
-                # Do not retry most client errors.
                 if (
                     status_code is not None
                     and 400 <= status_code < 500
@@ -258,7 +323,7 @@ def fetch_jobs(
 
                     logger.error(
                         "Adzuna returned a "
-                        f"non-retryable HTTP error: "
+                        "non-retryable HTTP error: "
                         f"{status_code}"
                     )
 
@@ -284,6 +349,10 @@ def fetch_jobs(
 
                 break
 
+            # =================================================
+            # EXPONENTIAL BACKOFF
+            # =================================================
+
             if attempt < max_retries:
 
                 wait_seconds = (
@@ -299,6 +368,10 @@ def fetch_jobs(
                     wait_seconds
                 )
 
+        # ====================================================
+        # PAGE FAILED
+        # ====================================================
+
         if data is None:
 
             logger.error(
@@ -312,6 +385,10 @@ def fetch_jobs(
             )
 
             continue
+
+        # ====================================================
+        # PROCESS RESULTS
+        # ====================================================
 
         results = data.get(
             "results",
@@ -345,6 +422,10 @@ def fetch_jobs(
                 ""
             )
 
+            # =================================================
+            # URL VALIDATION
+            # =================================================
+
             if not job_url:
 
                 logger.warning(
@@ -354,6 +435,10 @@ def fetch_jobs(
 
                 continue
 
+            # =================================================
+            # DUPLICATE URL PROTECTION
+            # =================================================
+
             if job_url in seen_urls:
 
                 continue
@@ -362,34 +447,61 @@ def fetch_jobs(
                 job_url
             )
 
+            # =================================================
+            # JOB TYPE NORMALIZATION
+            # =================================================
+
+            job_type = normalize_job_type(
+                job.get(
+                    "contract_type"
+                )
+            )
+
+            # =================================================
+            # SAVE NORMALIZED JOB
+            # =================================================
+
             all_jobs.append(
                 {
                     "title": job.get(
                         "title",
                         ""
                     ),
+
                     "company": company.get(
                         "display_name",
                         "Unknown Company"
                     ),
+
                     "location": location.get(
                         "display_name",
                         search_location
                     ),
+
                     "description": job.get(
                         "description",
                         ""
                     ),
+
                     "source": "Adzuna",
+
                     "url": job_url,
+
                     "salary_min": job.get(
                         "salary_min"
                     ),
+
                     "salary_max": job.get(
                         "salary_max"
-                    )
+                    ),
+
+                    "job_type": job_type
                 }
             )
+
+    # ========================================================
+    # FINAL RESULT
+    # ========================================================
 
     logger.info(
         f"Total unique jobs fetched "

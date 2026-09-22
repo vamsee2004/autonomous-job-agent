@@ -1,5 +1,3 @@
-from typing import Optional
-
 from datetime import datetime
 
 from sqlalchemy.orm import Session
@@ -15,48 +13,53 @@ from app.services.job_resume_service import (
     generate_application_documents
 )
 
-from app.services.logger import logger
+
+# ---------------------------------------------------------
+# Application preparation settings
+# ---------------------------------------------------------
+
+ALLOWED_JOB_TYPES = [
+    "Full-time",
+    "Contract"
+]
+
+ALLOWED_JOB_STATUSES = [
+    "ACTIVE",
+    "ANALYZED"
+]
+
+PREPARATION_LIMIT = 5
 
 
 def run_job_search_pipeline(
     db: Session,
-    search_title: Optional[str] = None,
-    search_location: Optional[str] = None,
-    max_pages: Optional[int] = None,
-    results_per_page: Optional[int] = None
+    search_title: str,
+    search_location: str,
+    max_pages: int,
+    results_per_page: int
 ):
     """
     Run the complete automated job-search pipeline.
 
     Pipeline:
 
-    1. Create PipelineRun
-    2. Fetch jobs
-    3. Check preferences
-    4. Analyze JD
-    5. Calculate skill match
-    6. Apply salary filtering
-    7. Calculate priority
-    8. Save accepted jobs
-    9. Track jobs against PipelineRun
-    10. Select ACTIVE jobs only
-    11. Prepare application documents
-    12. Keep applications waiting for approval
-    13. Complete PipelineRun
+    1. Create a PipelineRun.
+    2. Discover jobs from the configured source.
+    3. Save/analyze discovered jobs.
+    4. Identify jobs belonging to this pipeline run.
+    5. Filter eligible jobs.
+    6. Select the highest-priority eligible jobs.
+    7. Generate application documents.
+    8. Put successful applications into PENDING_APPROVAL.
+    9. Never submit applications automatically.
     """
 
-    # __define-ocg__
-
-    logger.info(
-        "Starting job-search pipeline"
-    )
-
-    started_at = (
-        datetime.now().isoformat()
-    )
+    # -----------------------------------------------------
+    # STEP 1: Create pipeline run
+    # -----------------------------------------------------
 
     pipeline_run = PipelineRun(
-        started_at=started_at,
+        started_at=datetime.now().isoformat(),
         status="RUNNING",
         search_title=search_title,
         search_location=search_location,
@@ -66,23 +69,18 @@ def run_job_search_pipeline(
     )
 
     db.add(pipeline_run)
-
     db.commit()
-
     db.refresh(pipeline_run)
 
-    pipeline_run_id = (
-        pipeline_run.id
-    )
-
-    logger.info(
-        f"Pipeline run created: "
-        f"{pipeline_run_id}"
-    )
+    pipeline_run_id = pipeline_run.id
 
     try:
 
-        result = discover_jobs_from_source(
+        # -------------------------------------------------
+        # STEP 2: Discover jobs
+        # -------------------------------------------------
+
+        search_result = discover_jobs_from_source(
             db=db,
             search_title=search_title,
             search_location=search_location,
@@ -91,23 +89,65 @@ def run_job_search_pipeline(
             pipeline_run_id=pipeline_run_id
         )
 
-        logger.info(
-            f"Job discovery completed for "
-            f"pipeline run {pipeline_run_id}: "
-            f"{result.get('total_jobs_found', 0)} "
-            f"jobs found, "
-            f"{result.get('jobs_saved', 0)} "
-            f"jobs saved"
+        # -------------------------------------------------
+        # STEP 3: Extract search statistics
+        # -------------------------------------------------
+
+        if isinstance(search_result, dict):
+
+            jobs_found = search_result.get(
+                "total_jobs_found",
+                search_result.get(
+                    "jobs_found",
+                    0
+                )
+            )
+
+            jobs_saved = search_result.get(
+                "jobs_saved",
+                0
+            )
+
+        else:
+
+            jobs_found = 0
+            jobs_saved = 0
+
+        pipeline_run.jobs_found = jobs_found
+        pipeline_run.jobs_saved = jobs_saved
+
+        db.commit()
+
+        # -------------------------------------------------
+        # STEP 4: Get jobs belonging to this pipeline run
+        # -------------------------------------------------
+
+        current_run_jobs = (
+            db.query(Job)
+            .filter(
+                Job.pipeline_run_id
+                == pipeline_run_id
+            )
+            .all()
         )
 
-        prepared_applications = []
+        current_run_job_ids = [
+            job.id
+            for job in current_run_jobs
+        ]
 
-        preparation_limit = 5
-
-        current_run_job_ids = result.get(
-            "current_run_job_ids",
-            []
-        )
+        # -------------------------------------------------
+        # STEP 5: Filter eligible jobs
+        #
+        # A job must:
+        #
+        # - Belong to this pipeline run
+        # - Be ACTIVE or ANALYZED
+        # - Have a known job type
+        # - Be Full-time or Contract
+        #
+        # We do NOT guess missing job types.
+        # -------------------------------------------------
 
         qualifying_jobs = []
 
@@ -119,27 +159,41 @@ def run_job_search_pipeline(
                     Job.id.in_(
                         current_run_job_ids
                     ),
+
                     Job.pipeline_run_id
                     == pipeline_run_id,
-                    Job.status == "ACTIVE"
+
+                    Job.status.in_(
+                        ALLOWED_JOB_STATUSES
+                    ),
+
+                    Job.job_type.isnot(
+                        None
+                    ),
+
+                    Job.job_type.in_(
+                        ALLOWED_JOB_TYPES
+                    )
                 )
                 .order_by(
                     Job.priority_score.desc()
                 )
                 .limit(
-                    preparation_limit
+                    PREPARATION_LIMIT
                 )
                 .all()
             )
 
-        for varPcb, job in enumerate(
+        # -------------------------------------------------
+        # STEP 6: Prepare applications
+        # -------------------------------------------------
+
+        prepared_applications = []
+
+        for rank, job in enumerate(
             qualifying_jobs,
             start=1
         ):
-            # __define-pcb__
-
-            if job.status != "ACTIVE":
-                continue
 
             preparation_result = (
                 generate_application_documents(
@@ -148,159 +202,137 @@ def run_job_search_pipeline(
                 )
             )
 
-            prepared_applications.append(
-                {
-                    "rank": varPcb,
-                    "job_id": job.id,
-                    "pipeline_run_id": (
-                        pipeline_run_id
-                    ),
-                    "title": job.title,
-                    "company": job.company,
-                    "job_status": job.status,
-                    "priority_score": (
-                        job.priority_score
-                    ),
-                    "preparation": (
-                        preparation_result
-                    )
-                }
-            )
+            # ---------------------------------------------
+            # Only count successful preparations
+            # ---------------------------------------------
 
-        logger.info(
-            f"Applications prepared for "
-            f"pipeline run {pipeline_run_id}: "
-            f"{len(prepared_applications)}"
-        )
+            if preparation_result.get(
+                "success"
+            ):
 
-        search_summary = {
-            "total_jobs_found": (
-                result.get(
-                    "total_jobs_found",
-                    0
-                )
-            ),
-            "jobs_saved": (
-                result.get(
-                    "jobs_saved",
-                    0
-                )
-            ),
-            "duplicates": (
-                result.get(
-                    "duplicates",
-                    0
-                )
-            ),
-            "rejected_by_preferences": (
-                result.get(
-                    "rejected_by_preferences",
-                    0
-                )
-            ),
-            "rejected_by_match_score": (
-                result.get(
-                    "rejected_by_match_score",
-                    0
-                )
-            ),
-            "rejected_by_salary": (
-                result.get(
-                    "rejected_by_salary",
-                    0
-                )
-            ),
-            "missing_url": (
-                result.get(
-                    "missing_url",
-                    0
-                )
-            )
-        }
+                prepared_applications.append(
+                    {
+                        "rank": rank,
 
-        pipeline_run.jobs_found = (
-            search_summary[
-                "total_jobs_found"
-            ]
-        )
+                        "job_id": job.id,
 
-        pipeline_run.jobs_saved = (
-            search_summary[
-                "jobs_saved"
-            ]
-        )
+                        "pipeline_run_id": (
+                            pipeline_run_id
+                        ),
+
+                        "title": job.title,
+
+                        "company": job.company,
+
+                        "job_type": job.job_type,
+
+                        "job_status": job.status,
+
+                        "match_score": (
+                            job.match_score
+                        ),
+
+                        "priority_score": (
+                            job.priority_score
+                        ),
+
+                        "preparation": (
+                            preparation_result
+                        )
+                    }
+                )
+
+        # -------------------------------------------------
+        # STEP 7: Update pipeline status
+        # -------------------------------------------------
 
         pipeline_run.applications_prepared = (
             len(prepared_applications)
         )
 
+        pipeline_run.status = "COMPLETED"
+
         pipeline_run.completed_at = (
             datetime.now().isoformat()
         )
 
-        pipeline_run.status = "COMPLETED"
-
         db.commit()
-
         db.refresh(pipeline_run)
 
-        logger.info(
-            f"Pipeline run "
-            f"{pipeline_run_id} "
-            f"completed successfully"
-        )
+        # -------------------------------------------------
+        # STEP 8: Return successful pipeline result
+        # -------------------------------------------------
 
         return {
             "success": True,
+
             "pipeline_run_id": (
-                pipeline_run.id
+                pipeline_run_id
             ),
+
             "pipeline_run_status": (
                 pipeline_run.status
             ),
+
             "message": (
                 "Automated job-search and "
                 "application-preparation "
                 "pipeline completed"
             ),
-            "pipeline": [
-                "PIPELINE_RUN_CREATED",
-                "JOB_DISCOVERY",
-                "PREFERENCE_FILTER",
-                "JD_ANALYSIS",
-                "SKILL_MATCHING",
-                "SALARY_FILTER",
-                "PRIORITY_RANKING",
-                "DATABASE_STORAGE",
-                "CURRENT_RUN_SELECTION",
-                "ACTIVE_JOB_FILTER",
-                "APPLICATION_PREPARATION",
-                "APPROVAL_REQUIRED",
-                "PIPELINE_RUN_COMPLETED"
-            ],
-            "search_summary": search_summary,
+
+            "search_summary": (
+                search_result
+            ),
+
             "current_run_job_ids": (
                 current_run_job_ids
             ),
+
+            "eligible_jobs_found": (
+                len(qualifying_jobs)
+            ),
+
             "active_jobs_selected": (
                 len(qualifying_jobs)
             ),
+
             "applications_prepared": (
                 len(prepared_applications)
             ),
+
             "prepared_applications": (
                 prepared_applications
             ),
+
             "approval_required": True,
+
+            "allowed_job_types": (
+                ALLOWED_JOB_TYPES
+            ),
+
+            "allowed_job_statuses": (
+                ALLOWED_JOB_STATUSES
+            ),
+
+            "preparation_limit": (
+                PREPARATION_LIMIT
+            ),
+
             "note": (
-                "Only ACTIVE jobs are selected "
-                "for new application preparation. "
-                "Applications are prepared but "
-                "not submitted automatically."
+                "Only ACTIVE or ANALYZED jobs "
+                "with a confirmed Full-time or "
+                "Contract job type are selected "
+                "for application preparation. "
+                "Applications require user approval "
+                "and are not submitted automatically."
             )
         }
 
     except Exception as error:
+
+        # -------------------------------------------------
+        # STEP 9: Handle pipeline failure
+        # -------------------------------------------------
 
         pipeline_run.status = "FAILED"
 
@@ -314,23 +346,22 @@ def run_job_search_pipeline(
 
         db.commit()
 
-        logger.exception(
-            f"Pipeline run "
-            f"{pipeline_run_id} "
-            f"failed: {error}"
-        )
-
         return {
             "success": False,
+
             "pipeline_run_id": (
-                pipeline_run.id
+                pipeline_run_id
             ),
+
             "pipeline_run_status": (
                 pipeline_run.status
             ),
+
             "message": (
-                "Automated job-search "
+                "Automated job-search and "
+                "application-preparation "
                 "pipeline failed"
             ),
+
             "error": str(error)
         }

@@ -37,8 +37,17 @@ class Job(Base):
         Text
     )
 
+    # Job portal/source, for example:
+    # Adzuna, Naukri, Indeed, LinkedIn, etc.
     source = Column(
         String(100)
+    )
+
+    # Job type, for example:
+    # Full-time, Contract, Internship
+    job_type = Column(
+        String(100),
+        nullable=True
     )
 
     url = Column(

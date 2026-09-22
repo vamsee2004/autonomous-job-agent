@@ -1,25 +1,72 @@
+from pathlib import Path
+
 from fastapi import FastAPI
 
 from app.api.candidate import router as candidate_router
 from app.api.jobs import router as jobs_router
+from app.api.outreach import router as outreach_router
 
 from app.database.connection import Base, engine
 
 from app.models.job import Job
 from app.models.application import Application
 from app.models.pipeline_run import PipelineRun
+from app.models.application_audit import ApplicationAudit
+from app.models.outreach import Outreach
+from app.models.application_feedback import ApplicationFeedback
 
 from app.services.scheduler import (
     start_scheduler,
     stop_scheduler
 )
 
+from app.services.config_validator import (
+    validate_configuration
+)
 
-# Create all database tables
+
+PROJECT_ROOT = Path(
+    __file__
+).resolve().parents[1]
+
+
+DATA_DIRECTORY = (
+    PROJECT_ROOT / "data"
+)
+
+
+# --------------------------------------------------
+# Create required directories
+# --------------------------------------------------
+
+(DATA_DIRECTORY / "resumes").mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+(DATA_DIRECTORY / "cover_letters").mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+(DATA_DIRECTORY / "logs").mkdir(
+    parents=True,
+    exist_ok=True
+)
+
+
+# --------------------------------------------------
+# Create database tables
+# --------------------------------------------------
+
 Base.metadata.create_all(
     bind=engine
 )
 
+
+# --------------------------------------------------
+# FastAPI application
+# --------------------------------------------------
 
 app = FastAPI(
     title="Autonomous Job Automation Agent",
@@ -31,7 +78,10 @@ app = FastAPI(
 )
 
 
+# --------------------------------------------------
 # Register API routers
+# --------------------------------------------------
+
 app.include_router(
     candidate_router
 )
@@ -40,18 +90,51 @@ app.include_router(
     jobs_router
 )
 
+app.include_router(
+    outreach_router
+)
+
+
+# --------------------------------------------------
+# Application startup
+# --------------------------------------------------
 
 @app.on_event("startup")
 def startup_event():
 
+    configuration = (
+        validate_configuration()
+    )
+
+    if not configuration["valid"]:
+
+        print(
+            "WARNING: Configuration validation "
+            "found errors."
+        )
+
+        for error in configuration["errors"]:
+
+            print(
+                f"Configuration error: {error}"
+            )
+
     start_scheduler()
 
+
+# --------------------------------------------------
+# Application shutdown
+# --------------------------------------------------
 
 @app.on_event("shutdown")
 def shutdown_event():
 
     stop_scheduler()
 
+
+# --------------------------------------------------
+# Root endpoint
+# --------------------------------------------------
 
 @app.get("/")
 def home():
@@ -63,6 +146,10 @@ def home():
         )
     }
 
+
+# --------------------------------------------------
+# Health endpoint
+# --------------------------------------------------
 
 @app.get("/health")
 def health():

@@ -36,10 +36,6 @@ PROFILE_PATH = (
 
 
 def get_current_timestamp():
-    """
-    Return the current timestamp in ISO format.
-    """
-
     return datetime.now().isoformat()
 
 
@@ -90,12 +86,9 @@ def job_matches_preferences(
 
     return {
         "title_matches": title_matches,
-
         "location_matches": location_matches,
-
         "matches_preferences": (
-            title_matches
-            and location_matches
+            title_matches and location_matches
         )
     }
 
@@ -110,31 +103,20 @@ def save_discovered_job(
     url: str,
     salary_min=None,
     salary_max=None,
+    job_type=None,
     pipeline_run_id=None
 ):
-    """
-    Save and analyze a discovered job.
-
-    Processing includes:
-
-    1. URL validation
-    2. Duplicate checking
-    3. Duplicate refresh
-    4. Preference filtering
-    5. JD analysis
-    6. Skill matching
-    7. Salary filtering
-    8. Priority calculation
-    9. Database storage
-    10. Pipeline run tracking
-    """
-
     logger.info(
         f"Processing discovered job: "
         f"title='{title}', "
         f"company='{company}', "
-        f"location='{location}'"
+        f"location='{location}', "
+        f"job_type='{job_type}'"
     )
+
+    # ==================================================
+    # URL VALIDATION
+    # ==================================================
 
     if not url:
 
@@ -155,6 +137,10 @@ def save_discovered_job(
     current_timestamp = (
         get_current_timestamp()
     )
+
+    # ==================================================
+    # DUPLICATE CHECK
+    # ==================================================
 
     existing_job = (
         db.query(Job)
@@ -191,6 +177,39 @@ def save_discovered_job(
                 pipeline_run_id
             )
 
+        if job_type:
+
+            existing_job.job_type = (
+                job_type
+            )
+
+        # ----------------------------------------------
+        # Recalculate priority for existing jobs.
+        # This allows learning to affect refreshed jobs.
+        # ----------------------------------------------
+
+        learning_priority_score = (
+            calculate_job_priority(
+                {
+                    "job_id": existing_job.id,
+                    "match_score": (
+                        existing_job.match_score
+                    ),
+                    "salary_min": (
+                        existing_job.salary_min
+                    ),
+                    "salary_max": (
+                        existing_job.salary_max
+                    )
+                },
+                db=db
+            )
+        )
+
+        existing_job.priority_score = (
+            int(learning_priority_score)
+        )
+
         db.commit()
 
         db.refresh(existing_job)
@@ -199,7 +218,9 @@ def save_discovered_job(
             f"Duplicate job refreshed: "
             f"job_id={existing_job.id}, "
             f"title='{existing_job.title}', "
-            f"company='{existing_job.company}'"
+            f"company='{existing_job.company}', "
+            f"priority_score="
+            f"{existing_job.priority_score}"
         )
 
         return {
@@ -212,7 +233,7 @@ def save_discovered_job(
             "reason": "DUPLICATE_REFRESHED",
             "message": (
                 "Job already exists; "
-                "last_seen_at updated"
+                "last_seen_at and priority updated"
             ),
             "job_id": existing_job.id,
             "pipeline_run_id": (
@@ -221,6 +242,7 @@ def save_discovered_job(
             "title": existing_job.title,
             "company": existing_job.company,
             "location": existing_job.location,
+            "job_type": existing_job.job_type,
             "match_score": (
                 existing_job.match_score
             ),
@@ -236,6 +258,10 @@ def save_discovered_job(
             )
         }
 
+    # ==================================================
+    # LOAD CANDIDATE PROFILE
+    # ==================================================
+
     with open(
         PROFILE_PATH,
         "r",
@@ -248,6 +274,10 @@ def save_discovered_job(
         "preferences",
         {}
     )
+
+    # ==================================================
+    # PREFERENCE CHECK
+    # ==================================================
 
     preference_check = (
         job_matches_preferences(
@@ -281,15 +311,15 @@ def save_discovered_job(
                 "Job does not match "
                 "candidate preferences"
             ),
-            "preference_check": (
-                preference_check
-            )
+            "preference_check": preference_check
         }
 
-    analysis = (
-        analyze_job_description(
-            description
-        )
+    # ==================================================
+    # JOB DESCRIPTION ANALYSIS
+    # ==================================================
+
+    analysis = analyze_job_description(
+        description
     )
 
     candidate_skills = candidate.get(
@@ -302,11 +332,13 @@ def save_discovered_job(
         analysis["skills"]
     )
 
-    minimum_match_score = (
-        preferences.get(
-            "minimum_match_score",
-            50
-        )
+    # ==================================================
+    # MATCH SCORE CHECK
+    # ==================================================
+
+    minimum_match_score = preferences.get(
+        "minimum_match_score",
+        50
     )
 
     if match["score"] < minimum_match_score:
@@ -334,6 +366,10 @@ def save_discovered_job(
             ),
             "match": match
         }
+
+    # ==================================================
+    # SALARY CHECK
+    # ==================================================
 
     minimum_salary = preferences.get(
         "minimum_salary",
@@ -393,50 +429,60 @@ def save_discovered_job(
                 f"salary_max={salary_max}"
             )
 
-    priority_score = (
-        calculate_job_priority(
-            {
-                "match_score": (
-                    match["score"]
-                ),
-                "salary_min": (
-                    salary_min
-                ),
-                "salary_max": (
-                    salary_max
-                )
-            }
-        )
-    )
+    # ==================================================
+    # CREATE JOB
+    # ==================================================
 
     new_job = Job(
-        pipeline_run_id=(
-            pipeline_run_id
-        ),
+        pipeline_run_id=pipeline_run_id,
         title=title,
         company=company,
         location=location,
         description=description,
         source=source,
+        job_type=job_type,
         url=url,
         salary_min=salary_min,
         salary_max=salary_max,
-        match_score=int(
-            match["score"]
-        ),
-        priority_score=int(
-            priority_score
-        ),
+        match_score=int(match["score"]),
+        priority_score=0,
         status="ACTIVE",
-        discovered_at=(
-            current_timestamp
-        ),
-        last_seen_at=(
-            current_timestamp
-        )
+        discovered_at=current_timestamp,
+        last_seen_at=current_timestamp
     )
 
     db.add(new_job)
+
+    # --------------------------------------------------
+    # Flush first so SQLAlchemy assigns the job ID.
+    # The learning ranker needs this ID.
+    # --------------------------------------------------
+
+    db.flush()
+
+    # ==================================================
+    # CALCULATE PRIORITY WITH LEARNING
+    # ==================================================
+
+    priority_score = (
+        calculate_job_priority(
+            {
+                "job_id": new_job.id,
+                "match_score": match["score"],
+                "salary_min": salary_min,
+                "salary_max": salary_max
+            },
+            db=db
+        )
+    )
+
+    new_job.priority_score = (
+        int(priority_score)
+    )
+
+    # ==================================================
+    # COMMIT JOB
+    # ==================================================
 
     db.commit()
 
@@ -447,10 +493,15 @@ def save_discovered_job(
         f"job_id={new_job.id}, "
         f"title='{new_job.title}', "
         f"company='{new_job.company}', "
+        f"job_type='{new_job.job_type}', "
         f"match_score={new_job.match_score}, "
         f"priority_score={new_job.priority_score}, "
         f"salary_check={salary_check}"
     )
+
+    # ==================================================
+    # RETURN RESULT
+    # ==================================================
 
     return {
         "success": True,
@@ -468,35 +519,24 @@ def save_discovered_job(
         "title": new_job.title,
         "company": new_job.company,
         "location": new_job.location,
-        "salary_min": (
-            new_job.salary_min
-        ),
-        "salary_max": (
-            new_job.salary_max
-        ),
-        "match_score": (
-            new_job.match_score
-        ),
-        "priority_score": (
-            new_job.priority_score
-        ),
+        "job_type": new_job.job_type,
+        "salary_min": new_job.salary_min,
+        "salary_max": new_job.salary_max,
+        "match_score": new_job.match_score,
+        "priority_score": new_job.priority_score,
         "discovered_at": (
             new_job.discovered_at
         ),
         "last_seen_at": (
             new_job.last_seen_at
         ),
-        "preference_check": (
-            preference_check
-        ),
+        "preference_check": preference_check,
         "analysis": analysis,
         "match": match,
         "minimum_match_score": (
             minimum_match_score
         ),
-        "minimum_salary": (
-            minimum_salary
-        ),
+        "minimum_salary": minimum_salary,
         "salary_check": salary_check,
         "status": new_job.status
     }

@@ -1,7 +1,7 @@
 {
-  "name": "Your Name",
-  "email": "your.email@example.com",
-  "phone": "+91XXXXXXXXXX",
+  "name": "vamsee",
+  "email": "krishna@example.com",
+  "phone": "+919291238697",
 
   "education": [
     {
@@ -26,13 +26,13 @@
 
   "projects": [
     {
-      "name": "Health and Fitness Application",
+      "name": "Your Project Name",
       "technologies": [
-        "React",
-        "Node.js",
-        "MongoDB"
+        "Java",
+        "Spring Boot",
+        "SQL"
       ],
-      "description": "A health and fitness application."
+      "description": "Describe your project here."
     }
   ],
 
@@ -44,14 +44,20 @@
       "Java Full Stack Developer",
       "Software Engineer"
     ],
+
     "locations": [
       "Hyderabad"
     ],
+
     "experience_level": "Fresher",
+
     "work_modes": [
       "On-site",
       "Hybrid"
     ],
-    "minimum_salary": 300000
+
+    "minimum_salary": 0,
+
+    "minimum_match_score": 50
   }
 }

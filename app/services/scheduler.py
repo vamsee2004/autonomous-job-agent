@@ -1,111 +1,188 @@
-import os
-
 from apscheduler.schedulers.background import (
     BackgroundScheduler
 )
 
-from dotenv import load_dotenv
-
 from app.database.connection import SessionLocal
 
-from app.services.automated_job_pipeline import (
-    run_job_search_pipeline
+from app.services.job_search_service import (
+    discover_jobs_from_source
 )
 
 from app.services.job_lifecycle import (
     mark_stale_jobs
 )
 
-from app.services.logger import logger
+from app.services.outreach_follow_up_processor import (
+    process_due_follow_ups
+)
+
+from app.services.config_validator import (
+    get_configuration
+)
+
+from app.services.logger import (
+    logger
+)
 
 
-load_dotenv()
-
+# ============================================================
+# SCHEDULER
+# ============================================================
 
 scheduler = BackgroundScheduler()
 
 
+# ============================================================
+# GET SCHEDULER SETTINGS
+# ============================================================
+
 def get_scheduler_settings():
 
-    search_title = os.getenv(
-        "JOB_SEARCH_TITLE",
-        "Java Developer"
-    )
-
-    search_location = os.getenv(
-        "JOB_SEARCH_LOCATION",
-        "Hyderabad"
-    )
-
-    try:
-        interval_hours = float(
-            os.getenv(
-                "JOB_SEARCH_INTERVAL_HOURS",
-                "6"
-            )
-        )
-    except ValueError:
-        interval_hours = 6
-
-    try:
-        max_pages = int(
-            os.getenv(
-                "JOB_SEARCH_MAX_PAGES",
-                "1"
-            )
-        )
-    except ValueError:
-        max_pages = 1
-
-    try:
-        results_per_page = int(
-            os.getenv(
-                "JOB_SEARCH_RESULTS_PER_PAGE",
-                "10"
-            )
-        )
-    except ValueError:
-        results_per_page = 10
-
-    try:
-        stale_after_hours = int(
-            os.getenv(
-                "JOB_STALE_AFTER_HOURS",
-                "72"
-            )
-        )
-    except ValueError:
-        stale_after_hours = 72
+    configuration = get_configuration()
 
     return {
-        "search_title": search_title,
-        "search_location": search_location,
-        "interval_hours": max(
-            interval_hours,
-            1
+        "search_title": (
+            configuration[
+                "job_search_title"
+            ]
         ),
-        "max_pages": max(
-            max_pages,
-            1
+
+        "search_location": (
+            configuration[
+                "job_search_location"
+            ]
         ),
-        "results_per_page": max(
-            results_per_page,
-            1
+
+        "search_interval_hours": (
+            configuration[
+                "job_search_interval_hours"
+            ]
         ),
-        "stale_after_hours": max(
-            stale_after_hours,
-            1
+
+        "max_pages": (
+            configuration[
+                "job_search_max_pages"
+            ]
+        ),
+
+        "results_per_page": (
+            configuration[
+                "job_search_results_per_page"
+            ]
+        ),
+
+        "stale_after_hours": (
+            configuration[
+                "job_stale_after_hours"
+            ]
+        ),
+
+        "automatic_stale_cleanup": (
+            configuration[
+                "automatic_stale_cleanup"
+            ]
+        ),
+
+        "automatic_follow_up_processing": (
+            configuration[
+                "automatic_follow_up_processing"
+            ]
         )
     }
 
 
-def run_stale_job_cleanup():
+# ============================================================
+# RUN SCHEDULED JOB SEARCH
+# ============================================================
+
+def run_scheduled_job_search():
 
     settings = get_scheduler_settings()
+
+    logger.info(
+        "Running scheduled job search..."
+    )
+
+    logger.info(
+        f"Search title: "
+        f"{settings['search_title']}"
+    )
+
+    logger.info(
+        f"Search location: "
+        f"{settings['search_location']}"
+    )
 
     db = SessionLocal()
 
     try:
+
+        result = discover_jobs_from_source(
+            db=db,
+            search_title=(
+                settings["search_title"]
+            ),
+            search_location=(
+                settings["search_location"]
+            ),
+            max_pages=(
+                settings["max_pages"]
+            ),
+            results_per_page=(
+                settings["results_per_page"]
+            )
+        )
+
+        logger.info(
+            "Scheduled job search completed."
+        )
+
+        logger.info(
+            f"Jobs found: "
+            f"{result.get('total_jobs_found', 0)}"
+        )
+
+        logger.info(
+            f"Jobs saved: "
+            f"{result.get('jobs_saved', 0)}"
+        )
+
+        logger.info(
+            f"Duplicates: "
+            f"{result.get('duplicates', 0)}"
+        )
+
+        return result
+
+    except Exception:
+
+        logger.exception(
+            "Scheduled job search failed."
+        )
+
+        return {
+            "success": False,
+            "error": (
+                "Scheduled job search failed."
+            )
+        }
+
+    finally:
+
+        db.close()
+
+
+# ============================================================
+# STALE JOB CLEANUP
+# ============================================================
+
+def run_stale_job_cleanup():
+
+    db = SessionLocal()
+
+    try:
+
+        settings = get_scheduler_settings()
 
         result = mark_stale_jobs(
             db=db,
@@ -116,247 +193,247 @@ def run_stale_job_cleanup():
             )
         )
 
-        logger.info(
-            "Stale-job cleanup completed: "
-            f"{result.get('jobs_marked_stale', 0)} "
-            "jobs marked stale"
-        )
+        if isinstance(result, dict):
 
-        print(
-            "Stale-job cleanup completed."
-        )
+            stale_count = result.get(
+                "stale_count",
+                0
+            )
 
-        print(
-            f"Jobs checked: "
-            f"{result.get('jobs_checked', 0)}"
-        )
+            if stale_count > 0:
 
-        print(
-            f"Jobs marked stale: "
-            f"{result.get('jobs_marked_stale', 0)}"
-        )
+                logger.info(
+                    "Stale-job cleanup: "
+                    f"{stale_count} "
+                    "job(s) marked stale."
+                )
 
-    except Exception as error:
+            else:
+
+                logger.info(
+                    "Stale-job cleanup completed. "
+                    "No jobs marked stale."
+                )
+
+        return result
+
+    except Exception:
 
         logger.exception(
-            f"Stale-job cleanup failed: {error}"
+            "Stale-job cleanup failed."
         )
 
-        print(
-            "Stale-job cleanup failed:"
-        )
-
-        print(error)
+        return {
+            "success": False,
+            "error": (
+                "Stale-job cleanup failed."
+            )
+        }
 
     finally:
 
         db.close()
 
 
-def run_scheduled_job_search():
+# ============================================================
+# FOLLOW-UP PROCESSING
+# ============================================================
 
-    settings = get_scheduler_settings()
+def run_follow_up_processing():
 
     db = SessionLocal()
 
     try:
 
-        result = run_job_search_pipeline(
-            db=db,
-            search_title=settings[
-                "search_title"
-            ],
-            search_location=settings[
-                "search_location"
-            ],
-            max_pages=settings[
-                "max_pages"
-            ],
-            results_per_page=settings[
-                "results_per_page"
-            ]
+        result = process_due_follow_ups(
+            db=db
         )
 
-        logger.info(
-            "Scheduled job search completed: "
-            f"pipeline_run_id="
-            f"{result.get('pipeline_run_id')}, "
-            f"status="
-            f"{result.get('pipeline_run_status')}"
+        processed_count = result.get(
+            "processed_count",
+            0
         )
 
-        print(
-            "Scheduled job search completed."
-        )
+        if processed_count > 0:
 
-        print(
-            f"Pipeline run ID: "
-            f"{result.get('pipeline_run_id')}"
-        )
-
-        print(
-            f"Pipeline status: "
-            f"{result.get('pipeline_run_status')}"
-        )
-
-        if result.get("success"):
-
-            search_summary = result.get(
-                "search_summary",
-                {}
-            )
-
-            print(
-                f"Search title: "
-                f"{settings['search_title']}"
-            )
-
-            print(
-                f"Search location: "
-                f"{settings['search_location']}"
-            )
-
-            print(
-                f"Jobs found: "
-                f"{search_summary.get(
-                    'total_jobs_found',
-                    0
-                )}"
-            )
-
-            print(
-                f"Jobs saved: "
-                f"{search_summary.get(
-                    'jobs_saved',
-                    0
-                )}"
-            )
-
-            print(
-                f"Applications prepared: "
-                f"{result.get(
-                    'applications_prepared',
-                    0
-                )}"
+            logger.info(
+                "Follow-up processing: "
+                f"{processed_count} "
+                "follow-up(s) are now due."
             )
 
         else:
 
-            print(
-                "Pipeline returned an error:"
+            logger.info(
+                "Follow-up processing completed. "
+                "No follow-ups are due."
             )
 
-            print(
-                result.get(
-                    "error",
-                    "Unknown error"
-                )
-            )
+        return result
 
-    except Exception as error:
+    except Exception:
 
         logger.exception(
-            f"Scheduled job search failed: {error}"
+            "Follow-up processing failed."
         )
 
-        print(
-            "Scheduled job search failed:"
-        )
-
-        print(error)
+        return {
+            "success": False,
+            "processed_count": 0,
+            "error": (
+                "Follow-up processing failed."
+            )
+        }
 
     finally:
 
         db.close()
 
 
+# ============================================================
+# START SCHEDULER
+# ============================================================
+
 def start_scheduler():
 
     if scheduler.running:
+
+        logger.info(
+            "Scheduler is already running."
+        )
 
         return
 
     settings = get_scheduler_settings()
 
-    scheduler.add_job(
-        run_scheduled_job_search,
-        trigger="interval",
-        hours=settings[
-            "interval_hours"
-        ],
-        id="job_search_pipeline",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True
-    )
+    # --------------------------------------------------------
+    # JOB SEARCH
+    # --------------------------------------------------------
 
     scheduler.add_job(
-        run_stale_job_cleanup,
-        trigger="interval",
-        hours=settings[
-            "interval_hours"
-        ],
-        id="stale_job_cleanup",
-        replace_existing=True,
-        max_instances=1,
-        coalesce=True
+        run_scheduled_job_search,
+        "interval",
+        hours=(
+            settings[
+                "search_interval_hours"
+            ]
+        ),
+        id="scheduled_job_search",
+        replace_existing=True
     )
+
+    # --------------------------------------------------------
+    # STALE JOB CLEANUP
+    # --------------------------------------------------------
+
+    if settings[
+        "automatic_stale_cleanup"
+    ]:
+
+        scheduler.add_job(
+            run_stale_job_cleanup,
+            "interval",
+            hours=24,
+            id="stale_job_cleanup",
+            replace_existing=True
+        )
+
+    # --------------------------------------------------------
+    # FOLLOW-UP PROCESSING
+    # --------------------------------------------------------
+
+    if settings[
+        "automatic_follow_up_processing"
+    ]:
+
+        scheduler.add_job(
+            run_follow_up_processing,
+            "interval",
+            hours=1,
+            id="outreach_follow_up_processor",
+            replace_existing=True
+        )
 
     scheduler.start()
 
     logger.info(
-        "Job-search scheduler started"
+        "Scheduler started."
     )
 
-    print(
+    logger.info(
         "Job-search scheduler started."
     )
 
-    print(
+    logger.info(
         f"Search title: "
         f"{settings['search_title']}"
     )
 
-    print(
+    logger.info(
         f"Search location: "
         f"{settings['search_location']}"
     )
 
-    print(
-        f"Search interval: "
-        f"{settings['interval_hours']} hours"
+    logger.info(
+        "Search interval: "
+        f"{settings['search_interval_hours']} "
+        "hours"
     )
 
-    print(
+    logger.info(
         f"Maximum pages: "
         f"{settings['max_pages']}"
     )
 
-    print(
+    logger.info(
         f"Results per page: "
         f"{settings['results_per_page']}"
     )
 
-    print(
+    logger.info(
         f"Stale after: "
-        f"{settings['stale_after_hours']} hours"
+        f"{settings['stale_after_hours']} "
+        "hours"
     )
 
-    print(
-        "Automatic stale-job cleanup enabled."
+    logger.info(
+        "Automatic stale-job cleanup: "
+        f"{settings['automatic_stale_cleanup']}"
     )
 
+    logger.info(
+        "Automatic outreach follow-up "
+        "processing: "
+        f"{settings['automatic_follow_up_processing']}"
+    )
+
+
+# ============================================================
+# STOP SCHEDULER
+# ============================================================
 
 def stop_scheduler():
 
-    if scheduler.running:
-
-        scheduler.shutdown()
+    if not scheduler.running:
 
         logger.info(
-            "Job-search scheduler stopped"
+            "Scheduler is not running."
         )
 
-        print(
-            "Job-search scheduler stopped."
+        return
+
+    try:
+
+        scheduler.shutdown(
+            wait=False
+        )
+
+        logger.info(
+            "Scheduler stopped."
+        )
+
+    except Exception:
+
+        logger.exception(
+            "Error while stopping scheduler."
         )

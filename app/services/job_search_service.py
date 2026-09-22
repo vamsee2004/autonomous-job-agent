@@ -55,8 +55,15 @@ def discover_jobs_from_source(
             description=job["description"],
             source=job["source"],
             url=job["url"],
-            salary_min=job.get("salary_min"),
-            salary_max=job.get("salary_max"),
+            salary_min=job.get(
+                "salary_min"
+            ),
+            salary_max=job.get(
+                "salary_max"
+            ),
+            job_type=job.get(
+                "job_type"
+            ),
             pipeline_run_id=pipeline_run_id
         )
 
@@ -92,13 +99,17 @@ def discover_jobs_from_source(
 
             missing_url_count += 1
 
-    # Get jobs belonging to the current pipeline run.
+    # ========================================================
+    # GET RANKED JOBS
+    # ========================================================
+
     if pipeline_run_id is not None:
 
         ranked_jobs = (
             db.query(Job)
             .filter(
-                Job.pipeline_run_id == pipeline_run_id
+                Job.pipeline_run_id
+                == pipeline_run_id
             )
             .order_by(
                 Job.priority_score.desc()
@@ -108,7 +119,6 @@ def discover_jobs_from_source(
 
     else:
 
-        # Newly discovered jobs are stored as ACTIVE.
         ranked_jobs = (
             db.query(Job)
             .filter(
@@ -120,49 +130,97 @@ def discover_jobs_from_source(
             .all()
         )
 
+    # ========================================================
+    # BUILD RANKED JOB RESPONSE
+    # ========================================================
+
     ranked_jobs_response = [
+
         {
             "job_id": job.id,
-            "pipeline_run_id": job.pipeline_run_id,
+
+            "pipeline_run_id": (
+                job.pipeline_run_id
+            ),
+
             "title": job.title,
+
             "company": job.company,
+
             "location": job.location,
+
+            "job_type": job.job_type,
+
             "match_score": job.match_score,
-            "priority_score": job.priority_score,
+
+            "priority_score": (
+                job.priority_score
+            ),
+
             "salary_min": job.salary_min,
+
             "salary_max": job.salary_max,
+
             "source": job.source,
+
             "url": job.url,
+
             "status": job.status,
-            "discovered_at": job.discovered_at,
-            "last_seen_at": job.last_seen_at
+
+            "discovered_at": (
+                job.discovered_at
+            ),
+
+            "last_seen_at": (
+                job.last_seen_at
+            )
         }
+
         for job in ranked_jobs
     ]
 
+    # ========================================================
+    # RETURN RESULT
+    # ========================================================
+
     return {
+
         "total_jobs_found": len(jobs),
+
         "jobs_saved": saved_count,
+
         "duplicates": duplicate_count,
+
         "rejected_by_preferences": (
             preference_rejected_count
         ),
+
         "rejected_by_match_score": (
             score_rejected_count
         ),
+
         "rejected_by_salary": (
             salary_rejected_count
         ),
+
         "missing_url": missing_url_count,
+
         "pipeline_run_id": pipeline_run_id,
+
         "current_run_job_ids": [
+
             result["job_id"]
+
             for result in results
+
             if (
-                result.get("reason") == "ACCEPTED"
+                result.get("reason")
+                == "ACCEPTED"
                 and result.get("job_id")
             )
         ],
+
         "ranked_jobs": ranked_jobs_response,
+
         "results": results
     }

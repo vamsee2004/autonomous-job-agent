@@ -13,13 +13,16 @@ from app.services.cover_letter_generator import (
     generate_cover_letter
 )
 
+from app.services.application_limits import (
+    check_application_limits
+)
+
 from app.services.logger import logger
 
 
 def file_exists(file_path):
 
     if not file_path:
-
         return False
 
     return Path(file_path).exists()
@@ -29,15 +32,6 @@ def generate_application_documents(
     db: Session,
     job_id: int
 ):
-    """
-    Generate a job-specific resume and cover letter,
-    then create an application tracking record.
-
-    Only ACTIVE jobs can receive new application
-    documents.
-
-    STALE jobs are blocked from new preparation.
-    """
 
     logger.info(
         f"Starting application preparation: "
@@ -46,9 +40,7 @@ def generate_application_documents(
 
     job = (
         db.query(Job)
-        .filter(
-            Job.id == job_id
-        )
+        .filter(Job.id == job_id)
         .first()
     )
 
@@ -72,6 +64,10 @@ def generate_application_documents(
         f"status={job.status}"
     )
 
+    # --------------------------------------------------
+    # STALE JOB CHECK
+    # --------------------------------------------------
+
     if job.status == "STALE":
 
         logger.warning(
@@ -86,14 +82,14 @@ def generate_application_documents(
                 "because this job is stale"
             ),
             "job_id": job.id,
-            "pipeline_run_id": (
-                job.pipeline_run_id
-            ),
+            "pipeline_run_id": job.pipeline_run_id,
             "status": job.status,
-            "last_seen_at": (
-                job.last_seen_at
-            )
+            "last_seen_at": job.last_seen_at
         }
+
+    # --------------------------------------------------
+    # JOB STATUS CHECK
+    # --------------------------------------------------
 
     if job.status not in [
         "ACTIVE",
@@ -115,6 +111,46 @@ def generate_application_documents(
             "job_id": job.id,
             "status": job.status
         }
+
+    # --------------------------------------------------
+    # APPLICATION LIMIT CHECK
+    # --------------------------------------------------
+
+    limit_check = check_application_limits(
+        db=db,
+        job=job
+    )
+
+    if not limit_check["allowed"]:
+
+        logger.warning(
+            f"Application blocked by limits: "
+            f"job_id={job.id}, "
+            f"title='{job.title}', "
+            f"company='{job.company}', "
+            f"reason={limit_check['reason']}"
+        )
+
+        return {
+            "success": False,
+            "message": (
+                "Application preparation blocked "
+                "by application limits"
+            ),
+            "job_id": job.id,
+            "pipeline_run_id": job.pipeline_run_id,
+            "status": job.status,
+            "limit_check": limit_check
+        }
+
+    logger.info(
+        f"Application limits passed: "
+        f"job_id={job.id}"
+    )
+
+    # --------------------------------------------------
+    # DUPLICATE APPLICATION CHECK
+    # --------------------------------------------------
 
     existing_application = (
         db.query(Application)
@@ -144,17 +180,16 @@ def generate_application_documents(
             ),
             "job_id": job.id,
             "pipeline_run_id": (
-                existing_application
-                .pipeline_run_id
+                existing_application.pipeline_run_id
             ),
             "status": (
                 existing_application.status
             )
         }
 
-    # --------------------------------------------------------
-    # Generate resume
-    # --------------------------------------------------------
+    # --------------------------------------------------
+    # RESUME GENERATION
+    # --------------------------------------------------
 
     logger.info(
         f"Generating job-specific resume: "
@@ -178,9 +213,7 @@ def generate_application_documents(
 
         return {
             "success": False,
-            "message": (
-                "Resume generation failed"
-            ),
+            "message": "Resume generation failed",
             "job_id": job.id,
             "error": str(error)
         }
@@ -199,9 +232,7 @@ def generate_application_documents(
 
         return {
             "success": False,
-            "message": (
-                "Resume generation failed"
-            ),
+            "message": "Resume generation failed",
             "job_id": job.id
         }
 
@@ -211,9 +242,9 @@ def generate_application_documents(
         f"file={resume_file}"
     )
 
-    # --------------------------------------------------------
-    # Generate cover letter
-    # --------------------------------------------------------
+    # --------------------------------------------------
+    # COVER LETTER GENERATION
+    # --------------------------------------------------
 
     logger.info(
         f"Generating cover letter: "
@@ -272,25 +303,34 @@ def generate_application_documents(
         f"file={cover_letter_file}"
     )
 
-    # --------------------------------------------------------
-    # Create application record
-    # --------------------------------------------------------
+    # --------------------------------------------------
+    # CREATE APPLICATION RECORD
+    # --------------------------------------------------
 
     application = Application(
         pipeline_run_id=job.pipeline_run_id,
         job_id=job.id,
-        status="PREPARED",
+
+        # Application is prepared and waiting
+        # for explicit user approval.
+        status="PENDING_APPROVAL",
+
         mode="APPROVAL_REQUIRED",
+
         resume_file=str(
             resume_file
         ),
+
         cover_letter_file=str(
             cover_letter_file
         ),
+
         notes=(
             "Resume and cover letter "
-            "prepared successfully"
+            "prepared successfully. "
+            "Waiting for user approval."
         ),
+
         approval_required=1,
         approved=0
     )
@@ -314,43 +354,53 @@ def generate_application_documents(
 
     return {
         "success": True,
+
         "message": (
-            "Application prepared "
-            "and tracking record created"
+            "Application prepared and "
+            "waiting for approval"
         ),
-        "application_id": (
-            application.id
-        ),
+
+        "application_id": application.id,
+
         "pipeline_run_id": (
             application.pipeline_run_id
         ),
+
         "job_id": job.id,
+
         "job_title": job.title,
+
         "company": job.company,
+
         "job_status": job.status,
-        "last_seen_at": (
-            job.last_seen_at
-        ),
+
+        "last_seen_at": job.last_seen_at,
+
         "status": application.status,
+
         "mode": application.mode,
+
         "approval_required": (
             application.approval_required
         ),
-        "approved": (
-            application.approved
-        ),
+
+        "approved": application.approved,
+
         "resume_file": (
             application.resume_file
         ),
-        "resume_exists": (
-            resume_exists
-        ),
+
+        "resume_exists": resume_exists,
+
         "cover_letter_file": (
             application.cover_letter_file
         ),
+
         "cover_letter_exists": (
             cover_letter_exists
-        )
+        ),
+
+        "limit_check": limit_check
     }
 
 
@@ -358,11 +408,6 @@ def generate_resume_for_job(
     db: Session,
     job_id: int
 ):
-    """
-    Generate only the resume for a specific job.
-
-    Stale jobs are blocked.
-    """
 
     logger.info(
         f"Starting resume generation: "
@@ -371,9 +416,7 @@ def generate_resume_for_job(
 
     job = (
         db.query(Job)
-        .filter(
-            Job.id == job_id
-        )
+        .filter(Job.id == job_id)
         .first()
     )
 
@@ -388,6 +431,10 @@ def generate_resume_for_job(
             "success": False,
             "message": "Job not found"
         }
+
+    # --------------------------------------------------
+    # STALE JOB CHECK
+    # --------------------------------------------------
 
     if job.status == "STALE":
 
@@ -404,10 +451,12 @@ def generate_resume_for_job(
             ),
             "job_id": job.id,
             "status": job.status,
-            "last_seen_at": (
-                job.last_seen_at
-            )
+            "last_seen_at": job.last_seen_at
         }
+
+    # --------------------------------------------------
+    # JOB STATUS CHECK
+    # --------------------------------------------------
 
     if job.status not in [
         "ACTIVE",
@@ -430,6 +479,10 @@ def generate_resume_for_job(
             "status": job.status
         }
 
+    # --------------------------------------------------
+    # RESUME GENERATION
+    # --------------------------------------------------
+
     try:
 
         resume_file = generate_job_resume(
@@ -447,9 +500,7 @@ def generate_resume_for_job(
 
         return {
             "success": False,
-            "message": (
-                "Resume generation failed"
-            ),
+            "message": "Resume generation failed",
             "job_id": job.id,
             "error": str(error)
         }
@@ -475,19 +526,13 @@ def generate_resume_for_job(
         )
 
     return {
-        "success": True,
+        "success": resume_exists,
         "job_id": job.id,
-        "pipeline_run_id": (
-            job.pipeline_run_id
-        ),
+        "pipeline_run_id": job.pipeline_run_id,
         "job_title": job.title,
         "company": job.company,
         "status": job.status,
-        "last_seen_at": (
-            job.last_seen_at
-        ),
-        "resume_file": str(
-            resume_file
-        ),
+        "last_seen_at": job.last_seen_at,
+        "resume_file": str(resume_file),
         "resume_exists": resume_exists
     }

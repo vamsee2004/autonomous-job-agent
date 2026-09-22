@@ -1,34 +1,50 @@
 from pathlib import Path
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import declarative_base, sessionmaker
-
-
-# Find the project root
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
-
-# Database folder
-DATABASE_DIRECTORY = (
-    PROJECT_ROOT / "data"
+from sqlalchemy.orm import (
+    declarative_base,
+    sessionmaker
 )
 
-# Create data folder if it doesn't exist
+
+# ============================================================
+# PROJECT PATHS
+# ============================================================
+
+PROJECT_ROOT = (
+    Path(__file__)
+    .resolve()
+    .parents[2]
+)
+
+
+DATABASE_DIRECTORY = (
+    PROJECT_ROOT
+    / "data"
+)
+
+
 DATABASE_DIRECTORY.mkdir(
     parents=True,
     exist_ok=True
 )
 
-# Absolute database path
+
 DATABASE_PATH = (
-    DATABASE_DIRECTORY / "jobs.db"
+    DATABASE_DIRECTORY
+    / "jobs.db"
 )
+
 
 DATABASE_URL = (
     f"sqlite:///{DATABASE_PATH}"
 )
 
 
-# Create database engine
+# ============================================================
+# DATABASE ENGINE
+# ============================================================
+
 engine = create_engine(
     DATABASE_URL,
     connect_args={
@@ -37,7 +53,10 @@ engine = create_engine(
 )
 
 
-# Database session
+# ============================================================
+# DATABASE SESSION
+# ============================================================
+
 SessionLocal = sessionmaker(
     autocommit=False,
     autoflush=False,
@@ -45,5 +64,31 @@ SessionLocal = sessionmaker(
 )
 
 
-# Base class for SQLAlchemy models
+# ============================================================
+# DATABASE BASE
+# ============================================================
+
 Base = declarative_base()
+
+
+# ============================================================
+# SAFE DATABASE SESSION
+# ============================================================
+
+def get_safe_session():
+
+    db = SessionLocal()
+
+    try:
+
+        yield db
+
+    except Exception:
+
+        db.rollback()
+
+        raise
+
+    finally:
+
+        db.close()
