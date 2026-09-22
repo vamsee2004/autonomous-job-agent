@@ -1,4 +1,4 @@
-# Autonomous Job Automation Agent
+<img width="1033" height="936" alt="image" src="https://github.com/user-attachments/assets/c1bd46ef-b212-4ed0-950a-e9274bfc3e86" /># Autonomous Job Automation Agent
 
 An AI-powered job search and application automation system built with
 Python, FastAPI, SQLAlchemy, SQLite, APScheduler, and external job-search
@@ -111,5 +111,7 @@ autonomous-job-agent
 ├── requirements.txt
 └── README.md
 
- <img width="1312" height="1199" alt="architecture png" src="https://github.com/user-attachments/assets/3f222da5-7e16-4fcd-b1a3-76a2261869c6" />
+ <img width="1033" height="936" alt="Screenshot 2026-09-22 221706" src="https://github.com/user-attachments/assets/e83792ed-c5a7-4db6-a77b-234e36fafb46" />
+
+
 
