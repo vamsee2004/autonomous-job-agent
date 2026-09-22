@@ -110,4 +110,6 @@ autonomous-job-agent
 ├── .gitignore
 ├── requirements.txt
 └── README.md
-<img width="1312" height="1199" alt="architecture png" src="https://github.com/user-attachments/assets/f2de7a1d-003e-4c20-9a48-c8cd219f79ce" />
+
+ <img width="1312" height="1199" alt="architecture png" src="https://github.com/user-attachments/assets/3f222da5-7e16-4fcd-b1a3-76a2261869c6" />
+
