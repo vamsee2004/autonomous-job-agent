@@ -1,0 +1,57 @@
+{
+  "name": "Your Name",
+  "email": "your.email@example.com",
+  "phone": "+91XXXXXXXXXX",
+
+  "education": [
+    {
+      "degree": "B.Tech",
+      "graduation_year": 2026
+    }
+  ],
+
+  "skills": [
+    "Java",
+    "Spring Boot",
+    "SQL",
+    "HTML",
+    "CSS",
+    "JavaScript",
+    "React",
+    "Python",
+    "AWS"
+  ],
+
+  "experience": [],
+
+  "projects": [
+    {
+      "name": "Health and Fitness Application",
+      "technologies": [
+        "React",
+        "Node.js",
+        "MongoDB"
+      ],
+      "description": "A health and fitness application."
+    }
+  ],
+
+  "certifications": [],
+
+  "preferences": {
+    "job_titles": [
+      "Java Developer",
+      "Java Full Stack Developer",
+      "Software Engineer"
+    ],
+    "locations": [
+      "Hyderabad"
+    ],
+    "experience_level": "Fresher",
+    "work_modes": [
+      "On-site",
+      "Hybrid"
+    ],
+    "minimum_salary": 300000
+  }
+}

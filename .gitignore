@@ -1,0 +1,10 @@
+.venv/
+.env
+.idea/
+__pycache__/
+*.pyc
+*.log
+texput.log
+data/jobs.db
+data/logs/
+data/

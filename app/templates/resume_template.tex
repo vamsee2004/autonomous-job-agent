@@ -1,0 +1,51 @@
+\documentclass[11pt]{article}
+
+\usepackage[margin=0.7in]{geometry}
+\usepackage{enumitem}
+\usepackage{hyperref}
+
+\begin{document}
+
+\begin{center}
+
+{\Large \textbf{ {{ name }} }}
+
+{{ email }} \\
+{{ phone }}
+
+\end{center}
+
+
+\section*{Education}
+
+{% for education in education_list %}
+
+\textbf{ {{ education.degree }} }
+\hfill
+{{ education.graduation_year }}
+
+{% endfor %}
+
+
+\section*{Skills}
+
+{{ skills }}
+
+
+\section*{Projects}
+
+{% for project in projects %}
+
+\textbf{ {{ project.name }} }
+
+{{ project.description }}
+
+Technologies:
+{{ project.technologies | join(", ") }}
+
+\vspace{0.1in}
+
+{% endfor %}
+
+
+\end{document}
