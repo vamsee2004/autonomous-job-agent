@@ -1,6 +1,7 @@
 from pathlib import Path
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.candidate import router as candidate_router
 from app.api.jobs import router as jobs_router
@@ -25,19 +26,12 @@ from app.services.config_validator import (
 )
 
 
-PROJECT_ROOT = Path(
-    __file__
-).resolve().parents[1]
+# ---------------------------------------------------------
+# Project directories
+# ---------------------------------------------------------
 
-
-DATA_DIRECTORY = (
-    PROJECT_ROOT / "data"
-)
-
-
-# --------------------------------------------------
-# Create required directories
-# --------------------------------------------------
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+DATA_DIRECTORY = PROJECT_ROOT / "data"
 
 (DATA_DIRECTORY / "resumes").mkdir(
     parents=True,
@@ -55,18 +49,16 @@ DATA_DIRECTORY = (
 )
 
 
-# --------------------------------------------------
-# Create database tables
-# --------------------------------------------------
+# ---------------------------------------------------------
+# Database initialization
+# ---------------------------------------------------------
 
-Base.metadata.create_all(
-    bind=engine
-)
+Base.metadata.create_all(bind=engine)
 
 
-# --------------------------------------------------
+# ---------------------------------------------------------
 # FastAPI application
-# --------------------------------------------------
+# ---------------------------------------------------------
 
 app = FastAPI(
     title="Autonomous Job Automation Agent",
@@ -78,33 +70,41 @@ app = FastAPI(
 )
 
 
-# --------------------------------------------------
-# Register API routers
-# --------------------------------------------------
+# ---------------------------------------------------------
+# CORS configuration
+# ---------------------------------------------------------
 
-app.include_router(
-    candidate_router
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5174",
+        "http://127.0.0.1:5174",
+        "http://localhost:5173",
+        "http://127.0.0.1:5173"
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
-app.include_router(
-    jobs_router
-)
 
-app.include_router(
-    outreach_router
-)
+# ---------------------------------------------------------
+# API routers
+# ---------------------------------------------------------
+
+app.include_router(candidate_router)
+app.include_router(jobs_router)
+app.include_router(outreach_router)
 
 
-# --------------------------------------------------
+# ---------------------------------------------------------
 # Application startup
-# --------------------------------------------------
+# ---------------------------------------------------------
 
 @app.on_event("startup")
 def startup_event():
 
-    configuration = (
-        validate_configuration()
-    )
+    configuration = validate_configuration()
 
     if not configuration["valid"]:
 
@@ -122,9 +122,9 @@ def startup_event():
     start_scheduler()
 
 
-# --------------------------------------------------
+# ---------------------------------------------------------
 # Application shutdown
-# --------------------------------------------------
+# ---------------------------------------------------------
 
 @app.on_event("shutdown")
 def shutdown_event():
@@ -132,9 +132,9 @@ def shutdown_event():
     stop_scheduler()
 
 
-# --------------------------------------------------
+# ---------------------------------------------------------
 # Root endpoint
-# --------------------------------------------------
+# ---------------------------------------------------------
 
 @app.get("/")
 def home():
@@ -147,9 +147,9 @@ def home():
     }
 
 
-# --------------------------------------------------
+# ---------------------------------------------------------
 # Health endpoint
-# --------------------------------------------------
+# ---------------------------------------------------------
 
 @app.get("/health")
 def health():
