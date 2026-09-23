@@ -1,4 +1,7 @@
-const API_BASE_URL = "https://autonomous-job-agent-069r.onrender.com";
+// API requests use the same server as the React frontend.
+// An empty base URL means requests are sent to the current domain.
+
+const API_BASE_URL = "";
 
 async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -82,6 +85,7 @@ export async function healthCheck() {
   return apiRequest("/health");
 }
 
+// Default API object
 const api = {
   getJobs,
   getJob,
