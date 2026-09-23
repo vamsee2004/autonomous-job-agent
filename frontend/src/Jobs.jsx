@@ -24,6 +24,10 @@ function Jobs() {
     useState("");
 
 
+  // ============================================================
+  // LOAD SAVED JOBS
+  // ============================================================
+
   async function loadJobs() {
 
     try {
@@ -58,18 +62,20 @@ function Jobs() {
   }
 
 
-  useEffect(() => {
+  // ============================================================
+  // DISCOVER LATEST JOBS
+  // ============================================================
 
-    loadJobs();
-
-  }, []);
-
-
-  async function handleDiscover() {
+  async function handleDiscover(
+    showSearching = true
+  ) {
 
     try {
 
-      setSearching(true);
+      if (showSearching) {
+        setSearching(true);
+      }
+
       setError("");
 
       await discoverJobs({
@@ -79,6 +85,7 @@ function Jobs() {
         resultsPerPage: 10,
       });
 
+      // Reload jobs after discovery
       await loadJobs();
 
     } catch (err) {
@@ -95,11 +102,49 @@ function Jobs() {
 
     } finally {
 
-      setSearching(false);
+      if (showSearching) {
+        setSearching(false);
+      }
 
     }
   }
 
+
+  // ============================================================
+  // INITIAL PAGE LOAD
+  // ============================================================
+
+  useEffect(() => {
+
+    async function initializeJobs() {
+
+      try {
+
+        // First display jobs already stored
+        await loadJobs();
+
+        // Then fetch recent opportunities
+        await handleDiscover(false);
+
+      } catch (err) {
+
+        console.error(
+          "Unable to initialize jobs:",
+          err
+        );
+
+      }
+
+    }
+
+    initializeJobs();
+
+  }, []);
+
+
+  // ============================================================
+  // FILTER JOBS
+  // ============================================================
 
   const filteredJobs =
     jobs.filter((job) => {
@@ -136,6 +181,10 @@ function Jobs() {
     });
 
 
+  // ============================================================
+  // UI
+  // ============================================================
+
   return (
 
     <main className="jobs-page">
@@ -160,7 +209,7 @@ function Jobs() {
 
         <button
           className="primary-button"
-          onClick={handleDiscover}
+          onClick={() => handleDiscover(true)}
           disabled={searching}
         >
 
@@ -239,7 +288,7 @@ function Jobs() {
 
         <div className="jobs-empty">
 
-          Loading jobs...
+          Loading latest jobs...
 
         </div>
 
@@ -248,6 +297,16 @@ function Jobs() {
         <div className="jobs-empty">
 
           No matching jobs found.
+
+          <br />
+
+          Try clicking
+          {" "}
+          <strong>
+            Discover Jobs
+          </strong>
+          {" "}
+          to search again.
 
         </div>
 
@@ -307,8 +366,7 @@ function Jobs() {
 
                   <strong>
 
-                    {job.match_score ??
-                      0}%
+                    {job.match_score ?? 0}%
 
                   </strong>
 
