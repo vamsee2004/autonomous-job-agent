@@ -1,6 +1,4 @@
-// API service for Autonomous Job Automation Agent
-
-const API_BASE_URL = "https://autonomous-job-agent-1.onrender.com";
+const API_BASE_URL = "https://autonomous-job-agent-069r.onrender.com";
 
 async function apiRequest(endpoint, options = {}) {
   const url = `${API_BASE_URL}${endpoint}`;
@@ -43,18 +41,17 @@ async function apiRequest(endpoint, options = {}) {
   }
 }
 
-/* =========================
-   JOB APIs
-   ========================= */
-
+// Get all saved jobs
 export async function getJobs() {
   return apiRequest("/jobs/");
 }
 
+// Get a single job
 export async function getJob(jobId) {
   return apiRequest(`/jobs/${jobId}`);
 }
 
+// Search jobs
 export async function searchJobs(searchParams = {}) {
   return apiRequest("/jobs/search", {
     method: "POST",
@@ -62,6 +59,7 @@ export async function searchJobs(searchParams = {}) {
   });
 }
 
+// Discover new jobs
 export async function discoverJobs(discoverParams = {}) {
   return apiRequest("/jobs/discover", {
     method: "POST",
@@ -69,29 +67,20 @@ export async function discoverJobs(discoverParams = {}) {
   });
 }
 
-/* =========================
-   APPLICATION APIs
-   ========================= */
-
+// Get all applications
 export async function getApplications() {
   return apiRequest("/jobs/applications/");
 }
 
+// Get a single application
 export async function getApplication(applicationId) {
   return apiRequest(`/jobs/applications/${applicationId}`);
 }
 
-/* =========================
-   HEALTH CHECK
-   ========================= */
-
+// Check backend health
 export async function healthCheck() {
   return apiRequest("/health");
 }
-
-/* =========================
-   DEFAULT API OBJECT
-   ========================= */
 
 const api = {
   getJobs,
