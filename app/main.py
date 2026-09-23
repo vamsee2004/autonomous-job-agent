@@ -1,4 +1,5 @@
 from pathlib import Path
+import os
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -74,14 +75,33 @@ app = FastAPI(
 # CORS configuration
 # ---------------------------------------------------------
 
+# Local development frontend URLs
+allowed_origins = [
+    "http://localhost:5174",
+    "http://127.0.0.1:5174",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+
+    # Render frontend
+    "https://autonomous-job-agent-frontend.onrender.com",
+
+    # Previous frontend URL, if still being used
+    "https://autonomous-job-agent-069r.onrender.com",
+]
+
+# Optional additional frontend URL from Render environment variable
+frontend_url = os.getenv("FRONTEND_URL")
+
+if frontend_url:
+    frontend_url = frontend_url.rstrip("/")
+
+    if frontend_url not in allowed_origins:
+        allowed_origins.append(frontend_url)
+
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5174",
-        "http://127.0.0.1:5174",
-        "http://localhost:5173",
-        "http://127.0.0.1:5173"
-    ],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -156,4 +176,25 @@ def health():
 
     return {
         "status": "healthy"
+    }
+
+
+# ---------------------------------------------------------
+# API information endpoint
+# ---------------------------------------------------------
+
+@app.get("/api")
+def api_info():
+
+    return {
+        "name": "Autonomous Job Automation Agent",
+        "version": "1.0.0",
+        "status": "online",
+        "endpoints": {
+            "health": "/health",
+            "jobs": "/jobs/",
+            "job_search": "/jobs/search",
+            "job_discovery": "/jobs/discover",
+            "applications": "/jobs/applications/"
+        }
     }
