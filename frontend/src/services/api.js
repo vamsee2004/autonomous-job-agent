@@ -1,4 +1,5 @@
-const API_BASE_URL = "http://127.0.0.1:8000";
+const API_BASE_URL =
+  "https://autonomous-job-agent-069r.onrender.com";
 
 async function apiRequest(endpoint, options = {}) {
   const response = await fetch(`${API_BASE_URL}${endpoint}`, {
@@ -29,11 +30,9 @@ export async function getJobs() {
   return apiRequest("/jobs/");
 }
 
-
 export async function getJob(jobId) {
   return apiRequest(`/jobs/${jobId}`);
 }
-
 
 export async function searchJobs({
   title = "Java Developer",
@@ -51,7 +50,6 @@ export async function searchJobs({
     }),
   });
 }
-
 
 export async function discoverJobs({
   title = "Java Developer",
@@ -79,7 +77,6 @@ export async function getApplications() {
   return apiRequest("/jobs/applications/");
 }
 
-
 export async function getApplication(applicationId) {
   return apiRequest(`/jobs/applications/${applicationId}`);
 }
@@ -93,6 +90,10 @@ export async function getHealth() {
   return apiRequest("/health");
 }
 
+
+// --------------------------------------------------
+// API Object
+// --------------------------------------------------
 
 const api = {
   getJobs,
